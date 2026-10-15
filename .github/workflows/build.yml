@@ -1,0 +1,81 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install build and runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgl1-mesa-dev libegl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libgtk-3-dev libwebkit2gtk-4.1-dev mpv shellcheck
+      - name: Alias webkit2gtk-4.0 for webview_go
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkgconfig"
+          printf 'Name: webkit2gtk-4.0\nDescription: alias of webkit2gtk-4.1\nVersion: 2.0\nRequires: webkit2gtk-4.1\n' > "$RUNNER_TEMP/pkgconfig/webkit2gtk-4.0.pc"
+          echo "PKG_CONFIG_PATH=$RUNNER_TEMP/pkgconfig" >> "$GITHUB_ENV"
+      - name: Check formatting and shell scripts
+        run: |
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          shellcheck scripts/*.sh packaging/linux/*.sh
+      - name: Race tests (headless GUI driver)
+        env:
+          SC_PLAYER_MPV_TEST_BINARY: /usr/bin/mpv
+        run: go test -race -tags ci ./...
+      - name: Linux installer smoke test
+        run: sh scripts/test-linux-installer.sh
+      - name: Build native Linux packages
+        run: sh scripts/build-linux.sh 0.1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install MinGW and Inno Setup
+        shell: powershell
+        run: |
+          choco install mingw innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          'C:\ProgramData\mingw64\mingw64\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          'C:\Program Files (x86)\Inno Setup 6' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Download mpv distribution
+        shell: powershell
+        run: |
+          $release = Invoke-RestMethod https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest
+          $asset = $release.assets | Where-Object { $_.name -match '^mpv-x86_64-\d.*\.7z$' } | Select-Object -First 1
+          if (-not $asset) { throw 'mpv archive not found' }
+          New-Item -ItemType Directory -Force .tools\mpv | Out-Null
+          Invoke-WebRequest $asset.browser_download_url -OutFile .tools\mpv.7z
+          & 7z x .tools\mpv.7z '-o.tools\mpv'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $asset.browser_download_url | Set-Content .tools\mpv\BUILD-SOURCE.txt
+      - name: Race tests
+        shell: powershell
+        env:
+          CGO_ENABLED: '1'
+          SC_PLAYER_MPV_TEST_BINARY: ${{ github.workspace }}\.tools\mpv\mpv.exe
+        run: go test -race ./...
+      - name: Build Windows installer
+        shell: powershell
+        run: ./scripts/build-windows.ps1 -MPVDirectory .tools/mpv -Installer
+      - name: Windows installer smoke test
+        shell: powershell
+        run: ./scripts/test-windows-installer.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: dist/*setup.exe

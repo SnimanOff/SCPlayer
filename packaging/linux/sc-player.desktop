@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SC Player
+Comment=SoundCloud desktop player
+Exec=sc-player
+Icon=sc-player
+Terminal=false
+Categories=AudioVideo;Audio;Player;

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- SoundCloud-style mark: orange tile, white cloud with waveform bars. Source of every icon size. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8A00"/>
+      <stop offset="1" stop-color="#FF3D00"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="url(#tile)"/>
+  <g fill="#FFFFFF">
+    <rect x="24" y="150" width="8" height="26" rx="4" ry="4"/>
+    <rect x="38" y="138" width="8" height="38" rx="4" ry="4"/>
+    <rect x="52" y="126" width="8" height="50" rx="4" ry="4"/>
+    <rect x="66" y="116" width="8" height="60" rx="4" ry="4"/>
+    <rect x="80" y="104" width="8" height="72" rx="4" ry="4"/>
+    <path d="M96 176 L96 96 A54 54 0 0 1 192 118 A30 30 0 0 1 202 176 Z"/>
+  </g>
+</svg>
