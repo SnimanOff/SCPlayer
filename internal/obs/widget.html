@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SC Player — OBS</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; background: transparent; overflow: hidden; }
+    body { font-family: "Segoe UI", Arial, sans-serif; color: #f5f6f8; }
+    [hidden] { display: none !important; }
+    .widget {
+      display: flex; align-items: center; gap: 12px;
+      width: 100%; max-width: 480px; height: 96px; padding: 12px;
+      border: 1px solid rgba(255, 255, 255, .10); border-radius: 12px;
+      background: rgba(19, 22, 29, .94);
+    }
+    .cover {
+      position: relative; flex: 0 0 70px; height: 70px; border-radius: 7px;
+      overflow: hidden; display: grid; place-items: center;
+      background: #2c303b; color: #ff7b35; font-size: 34px;
+    }
+    .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .details { flex: 1; min-width: 0; }
+    .status, .title, .artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .status { margin-bottom: 4px; color: #ff975e; font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+    .title { font-size: 20px; font-weight: 650; line-height: 25px; }
+    .artist { margin-top: 2px; color: #bec3ce; font-size: 15px; line-height: 20px; }
+    @media (max-width: 260px) {
+      .widget { gap: 8px; padding: 10px; }
+      .cover { flex-basis: 54px; height: 54px; }
+      .title { font-size: 17px; }
+      .artist { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="widget" class="widget" hidden role="status" aria-live="polite">
+    <div class="cover" aria-hidden="true"><span>♪</span><img id="artwork" alt="" hidden></div>
+    <div class="details">
+      <div id="status" class="status">Сейчас играет</div>
+      <div id="title" class="title"></div>
+      <div id="artist" class="artist"></div>
+    </div>
+  </div>
+  <script>
+    const widget = document.getElementById('widget');
+    const title = document.getElementById('title');
+    const artist = document.getElementById('artist');
+    const status = document.getElementById('status');
+    const artwork = document.getElementById('artwork');
+    let artworkURL = '';
+    artwork.onload = () => { artwork.hidden = false; };
+    artwork.onerror = () => { artwork.hidden = true; };
+
+    function render(state) {
+      if (!state.active) {
+        widget.hidden = true;
+        return;
+      }
+      title.textContent = state.title;
+      artist.textContent = state.artist;
+      status.textContent = state.paused ? 'Пауза' : 'Сейчас играет';
+      if (state.artwork !== artworkURL) {
+        artworkURL = state.artwork;
+        artwork.hidden = true;
+        if (artworkURL) artwork.src = artworkURL;
+        else artwork.removeAttribute('src');
+      }
+      widget.hidden = false;
+    }
+
+    async function poll() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch('/api/now-playing', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Unavailable');
+        render(await response.json());
+      } catch (_) {
+        widget.hidden = true;
+      } finally {
+        clearTimeout(timeout);
+        setTimeout(poll, 750);
+      }
+    }
+    poll();
+  </script>
+</body>
+</html>

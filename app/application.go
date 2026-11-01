@@ -19,6 +19,7 @@ import (
 
 	"sc_player/api/discord"
 	"sc_player/api/soundcloud"
+	"sc_player/internal/obs"
 	"sc_player/player"
 )
 
@@ -59,6 +60,7 @@ type Application struct {
 	queue         player.Queue
 	playing       soundcloud.Track
 	loading       bool
+	playReady     bool
 	playVersion   uint64
 	loggedIn      bool
 	loggingIn     bool
@@ -75,6 +77,9 @@ type Application struct {
 	listCancel    context.CancelFunc
 	discordStatus *widget.Label
 	discordToggle *widget.Check
+	obs           *obs.Server
+	obsEnabled    bool
+	obsError      error
 	accents       []*canvas.Rectangle
 	volume        float64
 	volumeTarget  atomic.Uint64
@@ -93,6 +98,7 @@ type Application struct {
 func New(gui fyne.App, sc *soundcloud.Session, library Library, engine player.Engine, presence discord.Service, modules ...Module) *Application {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &Application{GUI: gui, sc: sc, Library: library, engine: engine, presence: presence, ctx: ctx, cancel: cancel, volume: gui.Preferences().FloatWithFallback("volume", 80)}
+	a.obs = obs.New(obs.DefaultAddress)
 	a.session, a.sessionCancel = context.WithCancel(ctx)
 
 	_ = engine.SetVolume(ctx, a.volume)
@@ -139,7 +145,8 @@ func New(gui fyne.App, sc *soundcloud.Session, library Library, engine player.En
 	a.home = container.NewVScroll(content)
 
 	a.body.Objects = []fyne.CanvasObject{a.home}
-	discordRow := container.NewBorder(nil, nil, a.discordToggle, nil, a.discordStatus)
+	obsButton := widget.NewButton("OBS", a.showOBS)
+	discordRow := container.NewBorder(nil, nil, a.discordToggle, obsButton, a.discordStatus)
 	footer := container.NewVBox(a.nowPlaying, a.status, widget.NewSeparator(), discordRow)
 	a.Window.SetContent(container.NewBorder(header, footer, nil, nil, a.body))
 
@@ -150,6 +157,9 @@ func New(gui fyne.App, sc *soundcloud.Session, library Library, engine player.En
 		}
 		a.quit()
 	})
+	if gui.Preferences().BoolWithFallback("obs", false) {
+		a.message(a.setOBSEnabled(true))
+	}
 	return a
 }
 
@@ -187,6 +197,7 @@ func (a *Application) beginClose() bool {
 }
 
 func (a *Application) shutdown() {
+	_ = a.obs.Close()
 	_ = a.engine.Close()
 	a.presence.Close()
 	a.cancel()
@@ -385,8 +396,10 @@ func (a *Application) logout() {
 	a.loggedIn = false
 	a.nowPlaying.Hide()
 	a.loading = false
+	a.playReady = false
 	a.queue = player.Queue{}
 	a.playing = soundcloud.Track{}
+	a.updateOBS()
 	a.lastList = nil
 	a.account.Disable()
 	a.show(a.home)
@@ -424,7 +437,9 @@ func (a *Application) playCurrent() {
 	a.playVersion++
 	version := a.playVersion
 	a.loading = true
+	a.playReady = false
 	a.playing = track
+	a.updateOBS()
 	a.status.SetText("Загрузка трека…")
 	a.playerView.setTrack(track, ctx)
 	a.show(a.playerView.root)
@@ -447,6 +462,8 @@ func (a *Application) playCurrent() {
 			return
 		}
 		a.loading = false
+		a.playReady = err == nil
+		a.updateOBS()
 		if err != nil {
 			a.message(err)
 			return
@@ -479,6 +496,7 @@ func (a *Application) poll() {
 		case <-ticker.C:
 			a.ui(func() {
 				a.playerView.refresh(a.engine.Snapshot())
+				a.updateOBS()
 
 				if a.tray != nil && a.hidden == windowShown && windowMinimized(a.Window) {
 					a.hideToTray(true)
@@ -490,6 +508,7 @@ func (a *Application) poll() {
 			a.ui(func() { a.discordStatus.SetText(status) })
 		case event := <-a.engine.Events():
 			a.ui(func() {
+				a.updateOBS()
 				if event.Err != nil {
 					a.message(event.Err)
 				}
